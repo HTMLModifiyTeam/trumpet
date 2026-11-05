@@ -95,6 +95,7 @@ async function initAudio(ctxOverride) {
   babLP.connect(babG); babG.connect(bus(0.95, 0.32));
   AE.babbleGain = babG;
   AE.babbleIn = babLP;
+  AE.trumpetBus = bus(0.9, 0.28); // 시끄러운 트럼펫 버스 (리버브 조금)
 
   // 합성 소리 미리 굽기
   const SY = AE.synth;
@@ -103,6 +104,129 @@ async function initAudio(ctxOverride) {
     const src = ctx.createBufferSource(); src.buffer = SY.babble; src.loop = true; src.connect(AE.babbleIn); src.start();
   } catch (e) { console.warn('babble', e); }
   AE.ready = true;
+}
+
+// ===================== 시끄러운 트럼펫 (오실레이터) =====================
+const TRUMPET = { on: true, timer: 0, busy: false };
+const midiHz = m => 440 * Math.pow(2, (m - 69) / 12);
+
+function makeDistCurve(k) {
+  const n = 2048, c = new Float32Array(n);
+  for (let i = 0; i < n; i++) { const x = i / (n - 1) * 2 - 1; c[i] = Math.tanh(x * k) / Math.tanh(k); }
+  return c;
+}
+let _noiseBuf = null;
+function getNoise(ctx) {
+  if (_noiseBuf && _noiseBuf.sampleRate === ctx.sampleRate) return _noiseBuf;
+  const n = Math.floor(ctx.sampleRate * 1.5), b = ctx.createBuffer(1, n, ctx.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  return (_noiseBuf = b);
+}
+
+// 한 번 빽! 부는 소리. o: { vel, scoop, fall, vib, vibRate, trem, spit }
+function trumpetBlast(freq, dur, o = {}) {
+  const ctx = AE.ctx;
+  if (!AE.ready || !ctx || ctx.state !== 'running') return;
+  const vel = o.vel ?? 1, t0 = ctx.currentTime + 0.02, t1 = t0 + dur;
+
+  // 음 높이: 입술 떨림처럼 아래서 미끄러져 올라오고, 끝에서 축 처짐
+  const scoop = o.scoop ?? rand(0.86, 0.95), fall = o.fall ?? rand(0.9, 1);
+  const vibDepth = freq * (o.vib ?? rand(0.012, 0.03));
+
+  const mix = ctx.createGain(); mix.gain.value = 0.22;
+  const lfo = ctx.createOscillator(); lfo.type = 'sine';
+  lfo.frequency.value = o.vibRate ?? rand(5, 8.5);
+  const lfoG = ctx.createGain(); lfoG.gain.setValueAtTime(0, t0); lfoG.gain.linearRampToValueAtTime(vibDepth, t0 + Math.min(0.35, dur * 0.6));
+  lfo.connect(lfoG);
+
+  const oscs = [];
+  // 살짝씩 어긋난 톱니파/사각파를 겹쳐서 지저분하고 뾰족하게
+  [['sawtooth', 1, 0, 1], ['sawtooth', 1, 17, 0.8], ['square', 1, -13, 0.5], ['sawtooth', 2, 7, 0.45], ['sawtooth', 0.5, -5, 0.4]].forEach(([type, mult, cents, amp]) => {
+    const osc = ctx.createOscillator(); osc.type = type; osc.detune.value = cents;
+    const f = freq * mult;
+    osc.frequency.setValueAtTime(f * scoop, t0);
+    osc.frequency.exponentialRampToValueAtTime(f, t0 + 0.07);
+    osc.frequency.setValueAtTime(f, Math.max(t0 + 0.08, t1 - 0.18));
+    osc.frequency.exponentialRampToValueAtTime(f * fall, t1 + 0.04);
+    lfoG.connect(osc.frequency);
+    const g = ctx.createGain(); g.gain.value = amp; osc.connect(g); g.connect(mix);
+    osc.start(t0); osc.stop(t1 + 0.15); oscs.push(osc);
+  });
+  lfo.start(t0); lfo.stop(t1 + 0.15);
+
+  // 브라스 특유의 "뿌우~" 필터 열림 + 벨 공명 + 날카로운 대역
+  const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 3.5;
+  const hi = Math.min(freq * 9, 9000);
+  lp.frequency.setValueAtTime(Math.min(freq * 2, 3000), t0);
+  lp.frequency.exponentialRampToValueAtTime(hi, t0 + 0.09);
+  lp.frequency.exponentialRampToValueAtTime(Math.min(freq * 5, 6000), t1);
+  const pk1 = ctx.createBiquadFilter(); pk1.type = 'peaking'; pk1.frequency.value = 1250; pk1.Q.value = 1.6; pk1.gain.value = 9;
+  const pk2 = ctx.createBiquadFilter(); pk2.type = 'peaking'; pk2.frequency.value = 3100; pk2.Q.value = 2.2; pk2.gain.value = 7;
+  const shaper = ctx.createWaveShaper(); shaper.curve = makeDistCurve(o.drive ?? 7); shaper.oversample = '4x';
+  mix.connect(lp); lp.connect(pk1); pk1.connect(pk2); pk2.connect(shaper);
+
+  // 전체 볼륨 (+ 선택: 방귀 같은 떨림)
+  const trem = ctx.createGain(); trem.gain.value = 1;
+  let tremLfo = null;
+  if (o.trem) {
+    trem.gain.value = 0.55;
+    tremLfo = ctx.createOscillator(); tremLfo.type = 'square'; tremLfo.frequency.value = o.trem;
+    const tg = ctx.createGain(); tg.gain.value = 0.45; tremLfo.connect(tg); tg.connect(trem.gain);
+    tremLfo.start(t0); tremLfo.stop(t1 + 0.15);
+  }
+  const env = ctx.createGain(); const peak = 0.55 * vel, sus = 0.38 * vel;
+  env.gain.setValueAtTime(0.0001, t0);
+  env.gain.linearRampToValueAtTime(peak, t0 + 0.03);
+  env.gain.linearRampToValueAtTime(sus, t0 + 0.16);
+  env.gain.setValueAtTime(sus, Math.max(t0 + 0.17, t1 - 0.05));
+  env.gain.linearRampToValueAtTime(0.0001, t1 + 0.06);
+  shaper.connect(trem); trem.connect(env);
+
+  // 숨소리 / 침 튀는 "퍽" 소리
+  const nz = ctx.createBufferSource(); nz.buffer = getNoise(ctx); nz.loop = true;
+  const nbp = ctx.createBiquadFilter(); nbp.type = 'bandpass'; nbp.frequency.value = Math.min(freq * 3, 5000); nbp.Q.value = 0.8;
+  const ng = ctx.createGain();
+  ng.gain.setValueAtTime(0, t0); ng.gain.linearRampToValueAtTime((o.spit ?? 0.5) * vel, t0 + 0.012); ng.gain.exponentialRampToValueAtTime(0.06 * vel, t0 + 0.14);
+  ng.gain.setValueAtTime(0.06 * vel, Math.max(t0 + 0.15, t1 - 0.05)); ng.gain.linearRampToValueAtTime(0, t1 + 0.04);
+  nz.connect(nbp); nbp.connect(ng); ng.connect(env);
+  nz.start(t0, Math.random()); nz.stop(t1 + 0.15);
+
+  env.connect(AE.trumpetBus);
+  oscs[0].onended = () => { try { env.disconnect(); } catch (e) { } };
+}
+
+// 말도 안 되는 즉흥 연주 한 토막
+function trumpetPhrase() {
+  const kind = pick(['honk', 'honk', 'run', 'run', 'squeal', 'long', 'fart', 'stab']);
+  const noteHz = () => midiHz(58 + randi(0, 26)) * Math.pow(2, rand(-0.4, 0.4) / 12); // 일부러 음정 어긋나게
+  let total = 0;
+  const at = (delay, f, d, o) => { setTimeout(() => trumpetBlast(f, d, o), delay * 1000); total = Math.max(total, delay + d); };
+  if (kind === 'honk') { const d = rand(0.25, 0.7); at(0, noteHz(), d); }
+  else if (kind === 'long') { const d = rand(1.3, 2.4); at(0, midiHz(randi(60, 74)), d, { vel: 1, vib: 0.045, vibRate: rand(4, 6), scoop: 0.8, fall: 0.75 }); }
+  else if (kind === 'squeal') { const d = rand(0.4, 1.0); at(0, rand(1300, 2300), d, { vel: 0.85, scoop: 0.6, fall: 1.15, vib: 0.05, vibRate: 9, drive: 10, spit: 0.8 }); }
+  else if (kind === 'fart') { const d = rand(0.5, 1.1); at(0, rand(70, 130), d, { vel: 1.2, trem: rand(18, 30), vib: 0.06, scoop: 1.2, fall: 0.6, drive: 9 }); }
+  else if (kind === 'stab') { for (let i = 0; i < 3; i++) at(i * 0.16, noteHz() * (i === 2 ? 2 : 1), i === 2 ? 0.55 : 0.1, { vel: 1.1 }); }
+  else { // run: 급하게 막 올라갔다 내려갔다
+    const n = randi(6, 12); let m = 58 + randi(0, 14), t = 0;
+    for (let i = 0; i < n; i++) { m = clamp(m + randi(-5, 6), 52, 88); const d = rand(0.07, 0.14); at(t, midiHz(m) * Math.pow(2, rand(-0.3, 0.3) / 12), d, { vel: 0.9, scoop: rand(0.92, 1), vib: 0.004, drive: 8 }); t += d + rand(0.01, 0.05); }
+  }
+  // 관객 반응: 웅성거림이 커지고 누군가 화를 냄
+  setBabble(0.95); setTimeout(() => setBabble(0.5), total * 1000 + 400);
+  if (typeof UI !== 'undefined' && G.people && G.people.length) {
+    const p = pick(G.people); if (p) UI.bubble(p, pick(TRUMPET_LINES), Math.random() < 0.35, 0.15);
+  }
+  return total;
+}
+const TRUMPET_LINES = ['트럼펫 좀 꺼!', '귀 아파!!', '저거 누가 좀 말려!', '삑사리 나잖아!', '이게 무슨 소리야!', '제발 그만!', '고막 터져!', '나 집에 갈래!'];
+
+function startTrumpet() {
+  if (TRUMPET.busy) return; TRUMPET.busy = true;
+  const next = () => {
+    let d = 0;
+    if (TRUMPET.on && AE.ready && AE.ctx && AE.ctx.state === 'running' && !document.hidden) d = trumpetPhrase();
+    TRUMPET.timer = setTimeout(next, d * 1000 + rand(250, 1400));
+  };
+  TRUMPET.timer = setTimeout(next, 1200);
 }
 
 // ===================== 3D 장면 =====================
@@ -895,6 +1019,7 @@ async function boot() {
     requestAnimationFrame(loop);
     await initAudio();
     setBabble(0.5);
+    startTrumpet();
     setInterval(() => { const p = pick(aud()); if (p) UI.bubble(p, pick(ANGRY_LINES)); }, 1450);
     document.addEventListener('visibilitychange', () => { if (!AE.ctx) return; if (document.hidden) AE.ctx.suspend(); else AE.ctx.resume(); });
   } catch (e) { console.error(e?.stack || e); }
