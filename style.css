@@ -1,7 +1,6 @@
 :root { --sun:#ffd34d; --emerald:#127a5b; --ox:#a3262e; --ink:#1d2a4d; --brass:#d9a43a; --ft:"Gowun Dodum","Noto Sans KR",sans-serif; --fd:"Black Han Sans","Noto Sans KR",sans-serif }
 
-html,
-body {
+html, body {
   margin: 0;
   height: 100%;
   overflow: hidden;
@@ -27,11 +26,8 @@ body {
 #bubbles { position:fixed; inset:0; pointer-events:none; overflow:hidden }
 
 .bub { position:absolute; left:0; top:0; padding:6px 12px 7px; color:#6d1018; background:#fff3e8; border:2px solid #841c20; border-radius:14px; font-weight:700; font-size:15px; line-height:1.2; white-space:nowrap; box-shadow:0 3px 0 rgba(70,0,0,.2); will-change:transform,opacity }
-
 .bub::after { content:""; position:absolute; left:50%; bottom:-8px; width:11px; height:11px; background:#fff3e8; border-right:2px solid #841c20; border-bottom:2px solid #841c20; transform:translateX(-50%) rotate(45deg) }
-
 .bub.big { background:#ffd34d; font-family:var(--fd); font-size:21px; padding:6px 14px 7px }
-
 .bub.big::after { background:#ffd34d }
 
 #setlist {
@@ -51,24 +47,20 @@ body {
   white-space: nowrap;
   box-shadow: 0 3px 0 rgba(29, 42, 77, .2)
 }
-
 #setlist span {
   position: relative;
   padding: 2px 4px;
   color: rgba(29, 42, 77, .42)
 }
-
 #setlist span.done {
   color: rgba(29, 42, 77, .7);
   text-decoration: line-through;
   text-decoration-color: rgba(163, 38, 46, .65);
   text-decoration-thickness: 2px
 }
-
 #setlist span.now {
   color: var(--ink)
 }
-
 #setlist span.now::after {
   content: "";
   position: absolute;
@@ -77,7 +69,6 @@ body {
   border-radius: 50%;
   transform: rotate(-5deg)
 }
-
 #setlist i {
   width: 9px;
   height: 2px;
