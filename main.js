@@ -1,7 +1,7 @@
 import * as THREE from "three" // Main 3D Library
 import { rand, randi, pick, clamp, V3, C } from "./classes/utils.js"
 import { UI_ } from "./classes/UI.js"
-import { POSE, G } from "./classes/data.js"
+import { POSE, G, ANGRY_LINES, TRUMPET_LINES } from "./classes/data.js"
 import { Person } from "./classes/Person.js"
 import { Batch, mtx, shadeHex, mergeGeoms } from "./classes/Materials.js"
 
@@ -66,7 +66,10 @@ async function renderBabble(sr) {
   const xf = Math.floor(0.6 * sr);
   for (let c = 0; c < buf.numberOfChannels; c++) {
     const d = buf.getChannelData(c), N = d.length;
-    for (let i = 0; i < xf; i++) { const a = i / xf; d[i] = d[i] * a + d[N - xf + i] * (1 - a); }
+    for (let i = 0; i < xf; i++) {
+      const a = i / xf;
+      d[i] = d[i] * a + d[N - xf + i] * (1 - a);
+    }
   }
   return buf;
 }
@@ -99,7 +102,7 @@ async function initAudio(ctxOverride) {
   AE.babbleGain = babG;
   AE.babbleIn = babLP;
 
-  AE.trumpetBus = bus(0.9, 0.28); // 시끄러운 트럼펫 버스 (리버브 조금)
+  AE.trumpetBus = bus(0.3, 0.28); // 시끄러운 트럼펫 버스 (리버브 조금)
 
   // 합성 소리 미리 굽기
   const SY = AE.synth;
@@ -221,7 +224,6 @@ function trumpetPhrase() {
   }
   return total;
 }
-const TRUMPET_LINES = ['트럼펫 좀 꺼!', '귀 아파!!', '저거 누가 좀 말려!', '삑사리 나잖아!', '이게 무슨 소리야!', '제발 그만!', '고막 터져!', '나 집에 갈래!'];
 
 function startTrumpet() {
   if (TRUMPET.busy) return; TRUMPET.busy = true;
@@ -325,14 +327,15 @@ function makeEnv(renderer) {
   return rt.texture;
 }
 
-let pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+const PR = Math.min(window.devicePixelRatio || 1, 2);
 function initScene() {
+  THREE.ColorManagement.enabled = false;
   const canvas = document.getElementById('scene');
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(pixelRatio || 1, 1.75);
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.12;
-  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap;
+  const renderer = new THREE.WebGLRenderer({ canvas });
+  renderer.setPixelRatio(PR);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.12;
+  renderer.shadowMap.enabled = true;
   const scene = new THREE.Scene(); scene.background = C('#f4e2c4');
   const camera = new THREE.PerspectiveCamera(60, 1, 0.05, 60);
   Object.assign(G, { renderer, scene, camera });
@@ -403,7 +406,7 @@ function buildRoom() {
   const tL = new THREE.Mesh(new THREE.PlaneGeometry(16.4, 1.12), tileMat); tL.rotation.y = Math.PI / 2; tL.position.set(-6.49, 0.56, -4.3); tL.receiveShadow = true; scene.add(tL);
   const tR = new THREE.Mesh(new THREE.PlaneGeometry(16.4, 1.12), tileMat); tR.rotation.y = -Math.PI / 2; tR.position.set(6.49, 0.56, -4.3); tR.receiveShadow = true; scene.add(tR);
 
-  const W = new Batch(), Gl = new Batch(), Mt = new Batch(), Gs = new Batch();
+  const W = new Batch(), Gl = new Batch(), Mt = new Batch(), Glow = new Batch(), Gs = new Batch();
   // 벽 몰딩
   Gl.add(GEO.box, '#6b3a1e', [-6.44, 1.14, -4.3], 0, [0.06, 0.05, 16.4]);
   Gl.add(GEO.box, '#6b3a1e', [6.44, 1.14, -4.3], 0, [0.06, 0.05, 16.4]);
@@ -449,7 +452,7 @@ function buildRoom() {
     }
   });
   // 간판
-  const sign = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 0.9), new THREE.MeshStandardMaterial({ map: signTex(), roughness: 0.5, emissive: C('#1a1a10'), emissiveIntensity: 0.2 }));
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(3, 0.9), new THREE.MeshStandardMaterial({ map: signTex(), roughness: 0.5, emissive: C('#1a1a10'), emissiveIntensity: 0.2 }));
   sign.position.set(0, 3.68, -12.38); scene.add(sign); G.props.sign = sign;
   // 바 스툴
   [-3.2, -1.6, 0, 1.6, 3.2].forEach(x => {
@@ -472,6 +475,7 @@ function buildRoom() {
     Mt.add(GEO.cyl, '#2e2e2e', [tx, 0.015, tz], 0, [0.25, 0.03, 0.25]);
     // 촛불과 잔
     Gs.add(GEO.cyl, '#d23a2e', [tx - 0.08, 0.8, tz + 0.12], 0, [0.04, 0.08, 0.04]);
+    Glow.add(GEO.sphLo, '#ffd27a', [tx - 0.08, 0.865, tz + 0.12], 0, [0.014, 0.03, 0.014]);
     const nd = randi(1, 3);
     for (let k = 0; k < nd; k++) {
       const gx = tx + rand(-0.28, 0.28), gz = tz + rand(-0.25, 0.2), kind = Math.random();
@@ -497,10 +501,15 @@ function buildRoom() {
     Mt.add(GEO.cyl, '#2e2e2e', [5.2, 0.37, bz], 0, [0.05, 0.72, 0.05]);
     [-0.45, 0.45].forEach(o => G.seats.push({ x: 5.85, z: bz + o, seatY: 0.46, kind: 'booth', far: true }));
   });
+  [-1.5, -4.6, -7.7, -10.6].forEach(z => {
+    Mt.add(GEO.cyl, '#d9a43a', [6.4, 2.35, z], [0, 0, Math.PI / 2], [0.05, 0.16, 0.05]);
+    Glow.add(GEO.sphLo, '#fff0c2', [6.3, 2.42, z], 0, [0.07, 0.09, 0.07]);
+  });
   // 펜던트 조명
   tables.forEach(([tx, tz]) => {
     Mt.add(GEO.cyl, '#2b2b2b', [tx, 3.85, tz], 0, [0.006, 1.1, 0.006]);
     Mt.add(GEO.cone, '#1f8a6b', [tx, 3.22, tz], 0, [0.24, 0.22, 0.24]);
+    Glow.add(GEO.sphLo, '#fff2c4', [tx, 3.14, tz], 0, [0.075, 0.075, 0.075]);
   });
   // 모서리 큰 화분
   [[-5.9, -11.7], [5.9, -11.7], [-5.9, -0.2]].forEach(([x, z]) => {
@@ -522,6 +531,7 @@ function buildRoom() {
 
   const add = (b, mat, cast) => { if (!b.size) return; const m = b.mesh(mat); m.castShadow = !!cast; m.receiveShadow = true; scene.add(m); return m; };
   add(W, M.vc, false); add(Gl, M.gloss, true); add(Mt, M.metal, true); add(Gs, M.gloss, false);
+  const gm = add(Glow, M.glow, false); if (gm) gm.receiveShadow = false;
 }
 function buildChair(Gl, x, z, ry) {
   const GEO = G.GEO, m0 = mtx([x, 0, z], [0, ry, 0]);
@@ -534,32 +544,22 @@ function buildChair(Gl, x, z, ry) {
 function buildLights() {
   const s = G.scene;
   s.add(new THREE.HemisphereLight(C('#e3f2ff'), C('#e0a86e'), 0.72 * Math.PI));
-  s.add(new THREE.AmbientLight(C('#ffffff'), 0.12 * Math.PI));
-  const sun = new THREE.DirectionalLight(C('#fff0d6'), 1.65 * Math.PI);
+  s.add(new THREE.AmbientLight(C('#ffffff'), 0.12));
+  const sun = new THREE.DirectionalLight(C('#FFF0D6'), 1.65 * Math.PI);
   sun.position.set(-11, 9, -4.5); sun.target.position.set(1.5, 0, -5.5); s.add(sun.target);
   sun.castShadow = true;
-  const big = pixelRatio > 1.5 ? 1536 : 2048;
+  const big = PR > 1.5 ? 1536 : 2048;
   sun.shadow.mapSize.set(big, big);
   Object.assign(sun.shadow.camera, { left: -10, right: 10, top: 9, bottom: -9, near: 1, far: 32 });
   sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.025;
   s.add(sun);
-  const spill = new THREE.PointLight(C('#ffd7a0'), 0.95 * Math.PI, 17, 1.3); spill.position.set(0, 3.1, 0.3); s.add(spill);
-  const back = new THREE.PointLight(C('#ffe6b8'), 0.55 * Math.PI, 10, 1.4); back.position.set(0, 3.2, -9.5); s.add(back);
-  // 내 솔로 때 나를 비추는 핀 조명
-  const spot = new THREE.SpotLight(C('#fff1c8'), 0, 9, 0.36, 0.55, 1.2);
-  spot.position.set(0.1, 4.25, -2.5); spot.target.position.set(0, 1.2, 0.7); s.add(spot); s.add(spot.target);
-  const coneMat = new THREE.MeshBasicMaterial({ color: C('#fff3cf'), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
-  const cone = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.95, 4.4, 24, 1, true), coneMat);
-  const a = V3(0.1, 4.25, -2.5), b = V3(0, 1.2, 0.7), mid = a.clone().add(b).multiplyScalar(0.5);
-  cone.position.copy(mid); cone.lookAt(b); cone.rotateX(-Math.PI / 2);
-  s.add(cone);
 }
 
 // ===================== 관객 배치 =====================
 function buildPeople() {
   const seats = G.seats.slice();
   G.people = [];
-  seats.forEach((s, i) => {
+  seats.forEach((s, _) => {
     const fill = s.kind === 'chair' ? (s.far ? 0.75 : 1) : s.kind === 'stool' ? 0.8 : 0.75;
     if (Math.random() > fill) return;
     G.people.push(new Person({ x: s.x, z: s.z, seatY: s.seatY, kind: s.kind, far: s.far, angry: true }));
@@ -597,7 +597,11 @@ function buildBand() {
   // 트롬본 (밴드리더) — 오른쪽 앞
   const tb = new Person({ x: 0.76, y: 0.42, z: -0.8, kind: 'stand', ry: Math.PI, female: false, top: '#1f9e7a', bottom: '#3a3a3a', outfit: 'jacket', hat: 'pork', glasses: false, hair: 'short', skin: '#b07246', angry: true });
   tb.isBand = true;
-  const tr = buildTrombone(); tb.torso.add(tr.g); tb.trombone = tr; tb.playT = 0; tb.slideExt = 0; tb.turnT = 0;
+  const tr = buildTrombone(); tb.torso.add(tr.g); tb.trombone = tr;
+  tb.root.rotation.y = 0;
+  tb.trombone.g.position.set(.27, .2, .06);
+  tb.trombone.g.rotation.set(-1.45, 0, 0.12);
+  tb.armOverride = { L: [-.3, -.05, -.5], R: [-.2, .05, -.3] };
   G.band.tb = tb;
   // 피아노 — 왼쪽, 건반 쪽을 보고 앉음 (옆모습)
   const pn = new Person({ x: -0.4, y: 0.42, z: -0.72, kind: 'chair', seatY: 0.475, ry: -Math.PI / 2, female: true, top: '#e2403a', outfit: 'blouse', hair: 'bun', glasses: true, angry: true });
@@ -607,23 +611,19 @@ function buildBand() {
 }
 
 // ===================== 대사 =====================
-const ANGRY_LINES = ['뭐 하는 거야!', '그만 좀 해!', '시끄러워!', '정말 못 들어주겠네!', '관객을 보고 연주해!', '이게 연주야?', '이거 무슨 곡이야?', '나가!', '넌 별로야!'];
-
-const REACT = {
-  update() {
-    const you = G.camera.position;
-    for (const p of aud()) {
-      p.lookAt = G.camBase ? G.camBase.pos : you;
-      p.nodTarget = 0;
-      p.smileV = 0;
-      p.leanTarget = 0;
-    }
-    const tb = G.band.tb, pn = G.band.pn, bt = G.band.bartender;
-    tb.lookAt = you; tb.nodTarget = 0; tb.smileV = 0;
-    pn.lookAt = you; pn.nodTarget = 0; pn.smileV = 0;
-    bt.lookAt = you; bt.nodTarget = 0;
+function reactUpdate() {
+  const you = G.camera.position;
+  for (const p of aud()) {
+    p.lookAt = G.camBase ? G.camBase.pos : you;
+    p.nodTarget = 0;
+    p.smileV = 0;
+    p.leanTarget = 0;
   }
-};
+  const tb = G.band.tb, pn = G.band.pn, bt = G.band.bartender;
+  tb.lookAt = you; tb.nodTarget = 0; tb.smileV = 0;
+  pn.lookAt = you; pn.nodTarget = 0; pn.smileV = 0;
+  bt.lookAt = you; bt.nodTarget = 0;
+}
 
 const aud = () => G.people;
 const visNow = () => AE.ctx && AE.ctx.state === 'running' ? AE.ctx.currentTime - (AE.ctx.outputLatency || 0.02) : performance.now() / 1000;
@@ -643,14 +643,13 @@ function frame() {
   const tn = performance.now(), dt = Math.min(0.05, (tn - lastFrame) / 1000); lastFrame = tn;
   const now = visNow();
   const beatPos = tn / 1000 * 1.7;
-  REACT.update();
+  reactUpdate();
   for (const p of G.people) p.update(dt, now, beatPos);
   if (G.camBase) {
     const { pos, look } = G.camBase;
     const r = () => Math.random() * 2 - 1; // -1..1
-    G.camera.position.set(pos.x + r() * 0.035, pos.y + r() * 0.025, pos.z);
-    G.camera.lookAt(look.x + r() * 0.025, look.y + r() * 0.018, look.z);
-    G.camera.rotation.z += r() * 0.002;
+    G.camera.position.set(pos.x + r() * 0.035, pos.y + r() * 0.025, pos.z + r() * 0.002);
+    G.camera.lookAt(look.x + r() * 0.025, look.y + r() * 0.018, look.z + r() * 0.002);
   }
   for (const k of ['tb', 'pn', 'bartender']) {
     const b = G.band[k]; b.update(dt, now, beatPos);

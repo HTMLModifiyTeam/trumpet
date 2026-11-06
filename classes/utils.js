@@ -6,6 +6,9 @@ export const pick = arr => arr[Math.floor(Math.random() * arr.length)];
 export const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 export const lerp = (a, b, t) => a + (b - a) * t;
 
+// Ease
+export const easeIO = t => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+
 // 3D
 export const C = h => new THREE.Color(h).convertSRGBToLinear();
 export const V3 = (x, y, z) => new THREE.Vector3(x, y, z);

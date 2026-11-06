@@ -39,7 +39,8 @@ export function shadeHex(hex, amt) {
 export function mergeGeoms(items) {
   let total = 0;
   const parts = items.map(({ geo, color, mat }) => {
-    const g = geo.index ? geo.toNonIndexed() : geo.clone(); g.applyMatrix4(mat);
+    const g = geo.index ? geo.toNonIndexed() : geo.clone();
+    g.applyMatrix4(mat);
     total += g.attributes.position.count;
     return { g, color };
   });

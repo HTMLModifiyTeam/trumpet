@@ -1,28 +1,23 @@
 import * as THREE from 'three';
 import { SKIN, HAIRC, TOPS, BOTTOMS, POSE } from "./data.js"
 import { G } from "./data.js"
-import { pick, V3, C, rand, clamp, lerp } from "./utils.js"
+import { pick, V3, C, rand, clamp, lerp, easeIO } from "./utils.js"
 import { Batch, shadeHex } from "./Materials.js"
 
-const PG = {};
-function pgeo() {
-  if (PG.ok) return PG;
-  PG.torso = new THREE.CylinderGeometry(0.2, 0.165, 1, 16);
-  PG.limb = new THREE.CylinderGeometry(1, 1, 1, 10);
-  PG.cap = new THREE.SphereGeometry(1, 20, 12, 0, Math.PI * 2, 0, Math.PI * 0.56);
-  PG.shell = new THREE.CylinderGeometry(1, 1, 1, 16, 1, true, Math.PI * 0.32, Math.PI * 1.36);
-  PG.smile = new THREE.TorusGeometry(0.036, 0.0085, 6, 14, Math.PI);
-  PG.ring = new THREE.TorusGeometry(1, 0.13, 6, 20);
-  PG.skirt = new THREE.CylinderGeometry(0.17, 0.28, 1, 16);
-  PG.ok = true;
-  return PG;
-}
-const easeIO = t => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+const P = {
+  torso: new THREE.CylinderGeometry(0.2, 0.165, 1, 16),
+  limb: new THREE.CylinderGeometry(1, 1, 1, 10),
+  cap: new THREE.SphereGeometry(1, 20, 12, 0, Math.PI * 2, 0, Math.PI * 0.56),
+  shell: new THREE.CylinderGeometry(1, 1, 1, 16, 1, true, Math.PI * 0.32, Math.PI * 1.36),
+  smile: new THREE.TorusGeometry(0.036, 0.0085, 6, 14, Math.PI),
+  ring: new THREE.TorusGeometry(1, 0.13, 6, 20),
+  skirt: new THREE.CylinderGeometry(0.17, 0.28, 1, 16),
+};
 function M_() { return G.M; }
 
 export class Person {
   constructor(o) {
-    const P = pgeo(), GE = G.GEO; this.o = o; this.angry = !!o.angry;
+    const GE = G.GEO; this.o = o; this.angry = !!o.angry;
     const female = o.female ?? Math.random() < 0.5; this.female = female;
     const skin = o.skin || pick(SKIN), gray = Math.random() < 0.13;
     const hairC = o.hairC || (gray ? '#a3a3a3' : pick(HAIRC.slice(0, Math.random() < 0.82 ? 6 : 9)));
@@ -56,7 +51,7 @@ export class Person {
     }
     const S = new Batch();
     for (const sx of [-0.1, 0.1]) { S.add(P.limb, legC, [sx, 0.47, 0], 0, [0.082, 0.9, 0.082]); S.add(GE.box, shoeC, [sx, 0.035, 0.05], 0, [0.1, 0.07, 0.22]); }
-    if (outfit === 'dress') S.add(PG.skirt, top, [0, 0.72, 0], 0, [1, 0.42, 0.85]);
+    if (outfit === 'dress') S.add(P.skirt, top, [0, 0.72, 0], 0, [1, 0.42, 0.85]);
     this.legsStand = mk(S, M_().person, this.root, false);
     this.legsStand.visible = standing;
 
@@ -68,7 +63,7 @@ export class Person {
     T.add(GE.sph, top, [0, 0.05, 0], 0, [0.2, 0.08, 0.15]);
     T.add(GE.sph, top, [-0.2, 0.465, 0], 0, [0.1, 0.085, 0.09]); T.add(GE.sph, top, [0.2, 0.465, 0], 0, [0.1, 0.085, 0.09]);
     T.add(P.limb, skin, [0, 0.575, 0.005], 0, [0.052, 0.1, 0.052]);
-    if (outfit === 'tee') { T.add(PG.ring, shadeHex(top, -0.25), [0, 0.525, 0.005], [Math.PI / 2, 0, 0], [0.068, 0.068, 0.068]); if (Math.random() < 0.6) T.add(GE.sphLo, accent, [0, 0.36, 0.162], 0, [0.07, 0.07, 0.01]); }
+    if (outfit === 'tee') { T.add(P.ring, shadeHex(top, -0.25), [0, 0.525, 0.005], [Math.PI / 2, 0, 0], [0.068, 0.068, 0.068]); if (Math.random() < 0.6) T.add(GE.sphLo, accent, [0, 0.36, 0.162], 0, [0.07, 0.07, 0.01]); }
     if (outfit === 'shirt' || outfit === 'shirtTie' || outfit === 'blouse') {
       T.add(GE.box, shadeHex(top, 0.15), [-0.045, 0.53, 0.1], [0.35, 0, 0.6], [0.075, 0.022, 0.05]);
       T.add(GE.box, shadeHex(top, 0.15), [0.045, 0.53, 0.1], [0.35, 0, -0.6], [0.075, 0.022, 0.05]);
@@ -112,7 +107,7 @@ export class Person {
     }
     if (o.glasses ?? Math.random() < 0.3) {
       const gc = pick(['#1b1b1b', '#6b3b1a', '#2b3a67']);
-      H.add(PG.ring, gc, [-0.058, 0.024, 0.163], 0, [0.034, 0.034, 0.03]); H.add(PG.ring, gc, [0.058, 0.024, 0.163], 0, [0.034, 0.034, 0.03]);
+      H.add(P.ring, gc, [-0.058, 0.024, 0.163], 0, [0.034, 0.034, 0.03]); H.add(P.ring, gc, [0.058, 0.024, 0.163], 0, [0.034, 0.034, 0.03]);
       H.add(GE.box, gc, [0, 0.03, 0.166], 0, [0.04, 0.008, 0.008]);
     }
     const hat = o.hat || (Math.random() < 0.12 ? pick(['beret', 'cap']) : null);
@@ -147,7 +142,7 @@ export class Person {
     this.mouth = new THREE.Group(); this.mouth.position.set(0, -0.068, 0);
     this.head.add(this.mouth);
     const SM = new Batch();
-    SM.add(PG.smile, '#7a2a2a', [0, 0.03, 0.15], [0, 0, Math.PI], [1, 1, 1]);
+    SM.add(P.smile, '#7a2a2a', [0, 0.03, 0.15], [0, 0, Math.PI], [1, 1, 1]);
     this.smile = mk(SM, M_().person, this.mouth, false);
     const OM = new Batch();
     OM.add(GE.sphLo, '#5a1a1d', [0, -0.005, 0.142], 0, [0.042, 0.04, 0.018]);
