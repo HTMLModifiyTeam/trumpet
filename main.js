@@ -1,7 +1,7 @@
 import * as THREE from "three" // Main 3D Library
 import { rand, randi, pick, clamp, V3, C } from "./classes/utils.js"
 import { UI_ } from "./classes/UI.js"
-import { POSE, G, ANGRY_LINES, TRUMPET_LINES } from "./classes/data.js"
+import { POSE, G, ANGRY_LINES, TRUMPET_LINES, POSE_NAMES } from "./classes/data.js"
 import { Person } from "./classes/Person.js"
 import { Batch, mtx, shadeHex, mergeGeoms } from "./classes/Materials.js"
 
@@ -27,12 +27,12 @@ function makeIR(ctx, dur, power) {
     for (let i = 0; i < n; i++) {
       const fc = 9000 - 7000 * (i / n);
       const a = 1 - Math.exp(-2 * Math.PI * fc / sr);
-      y += a * (d[i] - y); d[i] = y;
+      y += a * (d[i] - y);
+      d[i] = y;
     }
   }
   return b;
 }
-
 // 웅성거림 (다른 사람 솔로 때 커지고 내 솔로 때 조용해짐)
 async function renderBabble(sr) {
   const dur = 8;
@@ -40,32 +40,59 @@ async function renderBabble(sr) {
   const oc = new OC(2, Math.floor(sr * dur), sr);
   const V = [[700, 1200], [400, 2000], [300, 870], [550, 1800], [450, 900], [650, 1100], [350, 2200]];
   for (let v = 0; v < 8; v++) {
-    const osc = oc.createOscillator(); osc.type = 'sawtooth';
+    const osc = oc.createOscillator();
+    osc.type = 'sawtooth';
     const female = v % 2 === 1, base = female ? rand(185, 235) : rand(100, 135), fs = female ? 1.12 : 1;
-    const f1 = oc.createBiquadFilter(); f1.type = 'bandpass'; f1.Q.value = 5;
-    const f2 = oc.createBiquadFilter(); f2.type = 'bandpass'; f2.Q.value = 8;
-    const g = oc.createGain(); g.gain.value = 0;
+    const f1 = oc.createBiquadFilter();
+    f1.type = 'bandpass';
+    f1.Q.value = 5;
+    const f2 = oc.createBiquadFilter();
+    f2.type = 'bandpass';
+    f2.Q.value = 8;
+    const g = oc.createGain();
+    g.gain.value = 0;
     const mix = oc.createGain();
     const pan = oc.createStereoPanner ? oc.createStereoPanner() : null;
-    osc.connect(f1); osc.connect(f2); f1.connect(mix); f2.connect(mix); mix.connect(g);
-    if (pan) { pan.pan.value = rand(-0.85, 0.85); g.connect(pan); pan.connect(oc.destination); } else g.connect(oc.destination);
+    osc.connect(f1);
+    osc.connect(f2);
+    f1.connect(mix);
+    f2.connect(mix);
+    mix.connect(g);
+    if (pan) {
+      pan.pan.value = rand(-0.85, 0.85);
+      g.connect(pan);
+      pan.connect(oc.destination);
+    } else g.connect(oc.destination);
     let t = rand(0, 0.6);
     while (t < dur - 0.3) {
-      if (Math.random() < 0.22) { t += rand(0.25, 0.9); continue; }
-      const sd = rand(0.08, 0.22), vw = pick(V);
-      f1.frequency.setValueAtTime(vw[0] * fs, t); f2.frequency.setValueAtTime(vw[1] * fs, t);
+      if (Math.random() < 0.22) {
+        t += rand(0.25, 0.9);
+        continue;
+      }
+      const sd = rand(0.08, 0.22),
+        vw = pick(V);
+      f1.frequency.setValueAtTime(vw[0] * fs, t);
+      f2.frequency.setValueAtTime(vw[1] * fs, t);
       osc.frequency.setValueAtTime(base * rand(0.88, 1.22), t);
       osc.frequency.linearRampToValueAtTime(base * rand(0.85, 1.1), t + sd);
-      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(rand(0.18, 0.4), t + 0.02); g.gain.linearRampToValueAtTime(0, t + sd);
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(rand(0.18, 0.4), t + 0.02);
+      g.gain.linearRampToValueAtTime(0, t + sd);
       t += sd + rand(0.01, 0.05);
     }
-    osc.start(0); osc.stop(dur);
+    osc.start(0);
+    osc.stop(dur);
   }
-  const buf = await new Promise(res => { const p = oc.startRendering(); if (p && p.then) p.then(res); else oc.oncomplete = e => res(e.renderedBuffer); });
+  const buf = await new Promise(res => {
+    const p = oc.startRendering();
+    if (p && p.then) p.then(res);
+    else oc.oncomplete = e => res(e.renderedBuffer);
+  });
   // 루프 이음새 크로스페이드
   const xf = Math.floor(0.6 * sr);
   for (let c = 0; c < buf.numberOfChannels; c++) {
-    const d = buf.getChannelData(c), N = d.length;
+    const d = buf.getChannelData(c),
+      N = d.length;
     for (let i = 0; i < xf; i++) {
       const a = i / xf;
       d[i] = d[i] * a + d[N - xf + i] * (1 - a);
@@ -73,7 +100,6 @@ async function renderBabble(sr) {
   }
   return buf;
 }
-
 async function initAudio(ctxOverride) {
   if (AE.ctx && !ctxOverride) return;
   const AC = window.AudioContext || window.webkitAudioContext;
@@ -82,151 +108,245 @@ async function initAudio(ctxOverride) {
   try {
     if (navigator.audioSession) navigator.audioSession.type = 'playback';
   } catch { }
-
   const comp = ctx.createDynamicsCompressor();
-  comp.threshold.value = -14; comp.knee.value = 10; comp.ratio.value = 3.2; comp.attack.value = 0.006; comp.release.value = 0.24;
-  const master = ctx.createGain(); master.gain.value = 0.85;
+  comp.threshold.value = -14;
+  comp.knee.value = 10;
+  comp.ratio.value = 3.2;
+  comp.attack.value = 0.006;
+  comp.release.value = 0.24;
+  const master = ctx.createGain();
+  master.gain.value = 0.85;
   // 마지막에 한 번 더 눌러서 소리가 깨지지 않게 (리미터)
   const lim = ctx.createDynamicsCompressor();
-  lim.threshold.value = -3; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.002; lim.release.value = 0.12;
-  master.connect(comp); comp.connect(lim); lim.connect(ctx.destination);
-  const rev = ctx.createConvolver(); rev.buffer = makeIR(ctx, 1.7, 2.4);
-  const revOut = ctx.createGain(); revOut.gain.value = 0.85; rev.connect(revOut); revOut.connect(master);
-  const bus = (gain, send) => { const g = ctx.createGain(); g.gain.value = gain; g.connect(master); const s = ctx.createGain(); s.gain.value = send; g.connect(s); s.connect(rev); return g; };
+  lim.threshold.value = -3;
+  lim.knee.value = 0;
+  lim.ratio.value = 20;
+  lim.attack.value = 0.002;
+  lim.release.value = 0.12;
+  master.connect(comp);
+  comp.connect(lim);
+  lim.connect(ctx.destination);
+  const rev = ctx.createConvolver();
+  rev.buffer = makeIR(ctx, 1.7, 2.4);
+  const revOut = ctx.createGain();
+  revOut.gain.value = 0.85;
+  rev.connect(revOut);
+  revOut.connect(master);
+  const bus = (gain, send) => {
+    const g = ctx.createGain();
+    g.gain.value = gain;
+    g.connect(master);
+    const s = ctx.createGain();
+    s.gain.value = send;
+    g.connect(s);
+    s.connect(rev);
+    return g;
+  };
   AE.master = master;
-
   // 웅성거림 버스 (멀리서 들리게 저역통과)
-  const babLP = ctx.createBiquadFilter(); babLP.type = 'lowpass'; babLP.frequency.value = 2200;
-  const babG = ctx.createGain(); babG.gain.value = 0;
-  babLP.connect(babG); babG.connect(bus(0.95, 0.32));
+  const babLP = ctx.createBiquadFilter();
+  babLP.type = 'lowpass';
+  babLP.frequency.value = 2200;
+  const babG = ctx.createGain();
+  babG.gain.value = 0;
+  babLP.connect(babG);
+  babG.connect(bus(0.95, 0.32));
   AE.babbleGain = babG;
   AE.babbleIn = babLP;
-
   AE.trumpetBus = bus(0.3, 0.28); // 시끄러운 트럼펫 버스 (리버브 조금)
-
   // 합성 소리 미리 굽기
   const SY = AE.synth;
   try {
     SY.babble = await renderBabble(ctx.sampleRate);
-    const src = ctx.createBufferSource(); src.buffer = SY.babble; src.loop = true; src.connect(AE.babbleIn); src.start();
+    const src = ctx.createBufferSource();
+    src.buffer = SY.babble;
+    src.loop = true;
+    src.connect(AE.babbleIn);
+    src.start();
   } catch (e) { console.warn('babble', e); }
   AE.ready = true;
 }
-
 // ===================== 시끄러운 트럼펫 (오실레이터) =====================
 const TRUMPET = { on: true, timer: 0, busy: false };
 const midiHz = m => 440 * Math.pow(2, (m - 69) / 12);
 
 function makeDistCurve(k) {
   const n = 2048, c = new Float32Array(n);
-  for (let i = 0; i < n; i++) { const x = i / (n - 1) * 2 - 1; c[i] = Math.tanh(x * k) / Math.tanh(k); }
+  for (let i = 0; i < n; i++) {
+    const x = i / (n - 1) * 2 - 1;
+    c[i] = Math.tanh(x * k) / Math.tanh(k);
+  }
   return c;
 }
 let _noiseBuf = null;
+
 function getNoise(ctx) {
   if (_noiseBuf && _noiseBuf.sampleRate === ctx.sampleRate) return _noiseBuf;
   const n = Math.floor(ctx.sampleRate * 1.5), b = ctx.createBuffer(1, n, ctx.sampleRate), d = b.getChannelData(0);
   for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
   return (_noiseBuf = b);
 }
-
 // 한 번 빽! 부는 소리. o: { vel, scoop, fall, vib, vibRate, trem, spit }
 function trumpetBlast(freq, dur, o = {}) {
   const ctx = AE.ctx;
   if (!AE.ready || !ctx || ctx.state !== 'running') return;
   const vel = o.vel ?? 1, t0 = ctx.currentTime + 0.02, t1 = t0 + dur;
-
   // 음 높이: 입술 떨림처럼 아래서 미끄러져 올라오고, 끝에서 축 처짐
   const scoop = o.scoop ?? rand(0.86, 0.95), fall = o.fall ?? rand(0.9, 1);
   const vibDepth = freq * (o.vib ?? rand(0.012, 0.03));
-
-  const mix = ctx.createGain(); mix.gain.value = 0.22;
-  const lfo = ctx.createOscillator(); lfo.type = 'sine';
+  const mix = ctx.createGain();
+  mix.gain.value = 0.22;
+  const lfo = ctx.createOscillator();
+  lfo.type = 'sine';
   lfo.frequency.value = o.vibRate ?? rand(5, 8.5);
-  const lfoG = ctx.createGain(); lfoG.gain.setValueAtTime(0, t0); lfoG.gain.linearRampToValueAtTime(vibDepth, t0 + Math.min(0.35, dur * 0.6));
+  const lfoG = ctx.createGain();
+  lfoG.gain.setValueAtTime(0, t0);
+  lfoG.gain.linearRampToValueAtTime(vibDepth, t0 + Math.min(0.35, dur * 0.6));
   lfo.connect(lfoG);
-
   const oscs = [];
   // 살짝씩 어긋난 톱니파/사각파를 겹쳐서 지저분하고 뾰족하게
   [['sawtooth', 1, 0, 1], ['sawtooth', 1, 17, 0.8], ['square', 1, -13, 0.5], ['sawtooth', 2, 7, 0.45], ['sawtooth', 0.5, -5, 0.4]].forEach(([type, mult, cents, amp]) => {
-    const osc = ctx.createOscillator(); osc.type = type; osc.detune.value = cents;
+    const osc = ctx.createOscillator();
+    osc.type = type;
+    osc.detune.value = cents;
     const f = freq * mult;
     osc.frequency.setValueAtTime(f * scoop, t0);
     osc.frequency.exponentialRampToValueAtTime(f, t0 + 0.07);
     osc.frequency.setValueAtTime(f, Math.max(t0 + 0.08, t1 - 0.18));
     osc.frequency.exponentialRampToValueAtTime(f * fall, t1 + 0.04);
     lfoG.connect(osc.frequency);
-    const g = ctx.createGain(); g.gain.value = amp; osc.connect(g); g.connect(mix);
-    osc.start(t0); osc.stop(t1 + 0.15); oscs.push(osc);
+    const g = ctx.createGain();
+    g.gain.value = amp;
+    osc.connect(g);
+    g.connect(mix);
+    osc.start(t0);
+    osc.stop(t1 + 0.15);
+    oscs.push(osc);
   });
-  lfo.start(t0); lfo.stop(t1 + 0.15);
-
+  lfo.start(t0);
+  lfo.stop(t1 + 0.15);
   // 브라스 특유의 "뿌우~" 필터 열림 + 벨 공명 + 날카로운 대역
-  const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 3.5;
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.Q.value = 3.5;
   const hi = Math.min(freq * 9, 9000);
   lp.frequency.setValueAtTime(Math.min(freq * 2, 3000), t0);
   lp.frequency.exponentialRampToValueAtTime(hi, t0 + 0.09);
   lp.frequency.exponentialRampToValueAtTime(Math.min(freq * 5, 6000), t1);
-  const pk1 = ctx.createBiquadFilter(); pk1.type = 'peaking'; pk1.frequency.value = 1250; pk1.Q.value = 1.6; pk1.gain.value = 9;
-  const pk2 = ctx.createBiquadFilter(); pk2.type = 'peaking'; pk2.frequency.value = 3100; pk2.Q.value = 2.2; pk2.gain.value = 7;
-  const shaper = ctx.createWaveShaper(); shaper.curve = makeDistCurve(o.drive ?? 7); shaper.oversample = '4x';
-  mix.connect(lp); lp.connect(pk1); pk1.connect(pk2); pk2.connect(shaper);
-
+  const pk1 = ctx.createBiquadFilter();
+  pk1.type = 'peaking';
+  pk1.frequency.value = 1250;
+  pk1.Q.value = 1.6;
+  pk1.gain.value = 9;
+  const pk2 = ctx.createBiquadFilter();
+  pk2.type = 'peaking';
+  pk2.frequency.value = 3100;
+  pk2.Q.value = 2.2;
+  pk2.gain.value = 7;
+  const shaper = ctx.createWaveShaper();
+  shaper.curve = makeDistCurve(o.drive ?? 7);
+  shaper.oversample = '4x';
+  mix.connect(lp);
+  lp.connect(pk1);
+  pk1.connect(pk2);
+  pk2.connect(shaper);
   // 전체 볼륨 (+ 선택: 방귀 같은 떨림)
-  const trem = ctx.createGain(); trem.gain.value = 1;
+  const trem = ctx.createGain();
+  trem.gain.value = 1;
   let tremLfo = null;
   if (o.trem) {
     trem.gain.value = 0.55;
-    tremLfo = ctx.createOscillator(); tremLfo.type = 'square'; tremLfo.frequency.value = o.trem;
-    const tg = ctx.createGain(); tg.gain.value = 0.45; tremLfo.connect(tg); tg.connect(trem.gain);
-    tremLfo.start(t0); tremLfo.stop(t1 + 0.15);
+    tremLfo = ctx.createOscillator();
+    tremLfo.type = 'square';
+    tremLfo.frequency.value = o.trem;
+    const tg = ctx.createGain();
+    tg.gain.value = 0.45;
+    tremLfo.connect(tg);
+    tg.connect(trem.gain);
+    tremLfo.start(t0);
+    tremLfo.stop(t1 + 0.15);
   }
-  const env = ctx.createGain(); const peak = 0.55 * vel, sus = 0.38 * vel;
+  const env = ctx.createGain();
+  const peak = 0.55 * vel, sus = 0.38 * vel;
   env.gain.setValueAtTime(0.0001, t0);
   env.gain.linearRampToValueAtTime(peak, t0 + 0.03);
   env.gain.linearRampToValueAtTime(sus, t0 + 0.16);
   env.gain.setValueAtTime(sus, Math.max(t0 + 0.17, t1 - 0.05));
   env.gain.linearRampToValueAtTime(0.0001, t1 + 0.06);
-  shaper.connect(trem); trem.connect(env);
-
+  shaper.connect(trem);
+  trem.connect(env);
   // 숨소리 / 침 튀는 "퍽" 소리
-  const nz = ctx.createBufferSource(); nz.buffer = getNoise(ctx); nz.loop = true;
-  const nbp = ctx.createBiquadFilter(); nbp.type = 'bandpass'; nbp.frequency.value = Math.min(freq * 3, 5000); nbp.Q.value = 0.8;
+  const nz = ctx.createBufferSource();
+  nz.buffer = getNoise(ctx);
+  nz.loop = true;
+  const nbp = ctx.createBiquadFilter();
+  nbp.type = 'bandpass';
+  nbp.frequency.value = Math.min(freq * 3, 5000);
+  nbp.Q.value = 0.8;
   const ng = ctx.createGain();
-  ng.gain.setValueAtTime(0, t0); ng.gain.linearRampToValueAtTime((o.spit ?? 0.5) * vel, t0 + 0.012); ng.gain.exponentialRampToValueAtTime(0.06 * vel, t0 + 0.14);
-  ng.gain.setValueAtTime(0.06 * vel, Math.max(t0 + 0.15, t1 - 0.05)); ng.gain.linearRampToValueAtTime(0, t1 + 0.04);
-  nz.connect(nbp); nbp.connect(ng); ng.connect(env);
-  nz.start(t0, Math.random()); nz.stop(t1 + 0.15);
-
+  ng.gain.setValueAtTime(0, t0);
+  ng.gain.linearRampToValueAtTime((o.spit ?? 0.5) * vel, t0 + 0.012);
+  ng.gain.exponentialRampToValueAtTime(0.06 * vel, t0 + 0.14);
+  ng.gain.setValueAtTime(0.06 * vel, Math.max(t0 + 0.15, t1 - 0.05));
+  ng.gain.linearRampToValueAtTime(0, t1 + 0.04);
+  nz.connect(nbp);
+  nbp.connect(ng);
+  ng.connect(env);
+  nz.start(t0, Math.random());
+  nz.stop(t1 + 0.15);
   env.connect(AE.trumpetBus);
-  oscs[0].onended = () => { try { env.disconnect(); } catch (e) { } };
+  oscs[0].onended = () => {
+    try {
+      env.disconnect();
+    } catch (e) { }
+  };
 }
-
 // 말도 안 되는 즉흥 연주 한 토막
 function trumpetPhrase() {
   const kind = pick(['honk', 'honk', 'run', 'run', 'squeal', 'long', 'fart', 'stab']);
   const noteHz = () => midiHz(58 + randi(0, 26)) * Math.pow(2, rand(-0.4, 0.4) / 12); // 일부러 음정 어긋나게
   let total = 0;
-  const at = (delay, f, d, o) => { setTimeout(() => trumpetBlast(f, d, o), delay * 1000); total = Math.max(total, delay + d); };
-  if (kind === 'honk') { const d = rand(0.25, 0.7); at(0, noteHz(), d); }
-  else if (kind === 'long') { const d = rand(1.3, 2.4); at(0, midiHz(randi(60, 74)), d, { vel: 1, vib: 0.045, vibRate: rand(4, 6), scoop: 0.8, fall: 0.75 }); }
-  else if (kind === 'squeal') { const d = rand(0.4, 1.0); at(0, rand(1300, 2300), d, { vel: 0.85, scoop: 0.6, fall: 1.15, vib: 0.05, vibRate: 9, drive: 10, spit: 0.8 }); }
-  else if (kind === 'fart') { const d = rand(0.5, 1.1); at(0, rand(70, 130), d, { vel: 1.2, trem: rand(18, 30), vib: 0.06, scoop: 1.2, fall: 0.6, drive: 9 }); }
-  else if (kind === 'stab') { for (let i = 0; i < 3; i++) at(i * 0.16, noteHz() * (i === 2 ? 2 : 1), i === 2 ? 0.55 : 0.1, { vel: 1.1 }); }
-  else { // run: 급하게 막 올라갔다 내려갔다
-    const n = randi(6, 12); let m = 58 + randi(0, 14), t = 0;
-    for (let i = 0; i < n; i++) { m = clamp(m + randi(-5, 6), 52, 88); const d = rand(0.07, 0.14); at(t, midiHz(m) * Math.pow(2, rand(-0.3, 0.3) / 12), d, { vel: 0.9, scoop: rand(0.92, 1), vib: 0.004, drive: 8 }); t += d + rand(0.01, 0.05); }
+  const at = (delay, f, d, o) => {
+    setTimeout(() => trumpetBlast(f, d, o), delay * 1000);
+    total = Math.max(total, delay + d);
+  };
+  if (kind === 'honk') {
+    const d = rand(0.25, 0.7);
+    at(0, noteHz(), d);
+  } else if (kind === 'long') {
+    const d = rand(1.3, 2.4);
+    at(0, midiHz(randi(60, 74)), d, { vel: 1, vib: 0.045, vibRate: rand(4, 6), scoop: 0.8, fall: 0.75 });
+  } else if (kind === 'squeal') {
+    const d = rand(0.4, 1.0);
+    at(0, rand(1300, 2300), d, { vel: 0.85, scoop: 0.6, fall: 1.15, vib: 0.05, vibRate: 9, drive: 10, spit: 0.8 });
+  } else if (kind === 'fart') {
+    const d = rand(0.5, 1.1);
+    at(0, rand(70, 130), d, { vel: 1.2, trem: rand(18, 30), vib: 0.06, scoop: 1.2, fall: 0.6, drive: 9 });
+  } else if (kind === 'stab') {
+    for (let i = 0; i < 3; i++) at(i * 0.16, noteHz() * (i === 2 ? 2 : 1), i === 2 ? 0.55 : 0.1, { vel: 1.1 });
+  } else { // run: 급하게 막 올라갔다 내려갔다
+    const n = randi(6, 12);
+    let m = 58 + randi(0, 14), t = 0;
+    for (let i = 0; i < n; i++) {
+      m = clamp(m + randi(-5, 6), 52, 88);
+      const d = rand(0.07, 0.14);
+      at(t, midiHz(m) * Math.pow(2, rand(-0.3, 0.3) / 12), d, { vel: 0.9, scoop: rand(0.92, 1), vib: 0.004, drive: 8 });
+      t += d + rand(0.01, 0.05);
+    }
   }
   // 관객 반응: 웅성거림이 커지고 누군가 화를 냄
-  setBabble(0.95); setTimeout(() => setBabble(0.5), total * 1000 + 400);
+  setBabble(0.95);
+  setTimeout(() => setBabble(0.5), total * 1000 + 400);
   if (typeof UI !== 'undefined' && G.people && G.people.length) {
-    const p = pick(G.people); if (p) UI.bubble(p, pick(TRUMPET_LINES), Math.random() < 0.35, 0.15);
+    const p = pick(G.people);
+    if (p) UI.bubble(p, pick(TRUMPET_LINES), Math.random() < 0.35, 0.15);
   }
   return total;
 }
 
 function startTrumpet() {
-  if (TRUMPET.busy) return; TRUMPET.busy = true;
+  if (TRUMPET.busy) return;
+  TRUMPET.busy = true;
   const next = () => {
     let d = 0;
     if (TRUMPET.on && AE.ready && AE.ctx && AE.ctx.state === 'running' && !document.hidden) d = trumpetPhrase();
@@ -234,13 +354,20 @@ function startTrumpet() {
   };
   TRUMPET.timer = setTimeout(next, 1200);
 }
-
 // ===================== 3D 장면 =====================
 function canvasTex(w, h, draw, o = {}) {
-  const c = document.createElement('canvas'); c.width = w; c.height = h;
-  const g = c.getContext('2d'); draw(g, w, h);
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
-  if (o.repeat) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(o.repeat[0], o.repeat[1]); }
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const g = c.getContext('2d');
+  draw(g, w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  if (o.repeat) {
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(o.repeat[0], o.repeat[1]);
+  }
   return t;
 }
 const FONT_D = '"Black Han Sans","Noto Sans CJK KR","Noto Sans KR",sans-serif';
@@ -249,62 +376,91 @@ function woodTex(base, rows, repeat, seams = true) {
   return canvasTex(512, 512, (g, w, h) => {
     const ph = h / rows;
     for (let i = 0; i < rows; i++) {
-      g.fillStyle = shadeHex(base, rand(-0.1, 0.08)); g.fillRect(0, i * ph, w, ph);
+      g.fillStyle = shadeHex(base, rand(-0.1, 0.08));
+      g.fillRect(0, i * ph, w, ph);
       for (let k = 0; k < 34; k++) {
-        g.strokeStyle = `rgba(70,35,12,${rand(0.03, 0.1)})`; g.lineWidth = rand(0.6, 2.2);
-        g.beginPath(); const y = i * ph + rand(2, ph - 2); g.moveTo(0, y);
+        g.strokeStyle = `rgba(70,35,12,${rand(0.03, 0.1)})`;
+        g.lineWidth = rand(0.6, 2.2);
+        g.beginPath();
+        const y = i * ph + rand(2, ph - 2);
+        g.moveTo(0, y);
         for (let x = 0; x <= w; x += 24) g.lineTo(x, y + Math.sin(x * 0.015 + k) * rand(0.4, 2.2));
         g.stroke();
       }
-      if (seams) { g.fillStyle = 'rgba(45,22,8,0.55)'; g.fillRect(0, i * ph, w, 2); g.fillRect(rand(40, w - 40), i * ph, 2, ph); }
+      if (seams) {
+        g.fillStyle = 'rgba(45,22,8,0.55)';
+        g.fillRect(0, i * ph, w, 2);
+        g.fillRect(rand(40, w - 40), i * ph, 2, ph);
+      }
     }
   }, { repeat });
 }
+
 function tileTex() {
   return canvasTex(512, 256, (g, w, h) => {
-    g.fillStyle = '#efe7d6'; g.fillRect(0, 0, w, h);
-    const tw = 64, th = 32;
+    g.fillStyle = '#efe7d6';
+    g.fillRect(0, 0, w, h);
+    const tw = 64,th = 32;
     for (let r = 0; r < h / th; r++) {
       const off = (r % 2) * tw / 2;
       for (let c = -1; c < w / tw + 1; c++) {
         const x = c * tw + off, y = r * th;
-        g.fillStyle = shadeHex('#1b8a68', rand(-0.12, 0.1)); g.fillRect(x + 2, y + 2, tw - 4, th - 4);
-        g.fillStyle = 'rgba(255,255,255,0.22)'; g.fillRect(x + 5, y + 5, tw - 10, 4);
+        g.fillStyle = shadeHex('#1b8a68', rand(-0.12, 0.1));
+        g.fillRect(x + 2, y + 2, tw - 4, th - 4);
+        g.fillStyle = 'rgba(255,255,255,0.22)';
+        g.fillRect(x + 5, y + 5, tw - 10, 4);
       }
     }
   }, { repeat: [7, 1] });
 }
+
 function skyTex() {
   return canvasTex(256, 512, (g, w, h) => {
     const gr = g.createLinearGradient(0, 0, 0, h);
-    gr.addColorStop(0, '#5fb6f2'); gr.addColorStop(0.55, '#a9dcfb'); gr.addColorStop(1, '#eaf7ff');
-    g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    gr.addColorStop(0, '#5fb6f2');
+    gr.addColorStop(0.55, '#a9dcfb');
+    gr.addColorStop(1, '#eaf7ff');
+    g.fillStyle = gr;
+    g.fillRect(0, 0, w, h);
     for (let i = 0; i < 6; i++) {
       const cx = rand(0, w), cy = rand(40, h * 0.5);
       g.fillStyle = 'rgba(255,255,255,0.85)';
-      for (let k = 0; k < 6; k++) { g.beginPath(); g.arc(cx + rand(-40, 40), cy + rand(-10, 10), rand(14, 30), 0, Math.PI * 2); g.fill(); }
+      for (let k = 0; k < 6; k++) {
+        g.beginPath();
+        g.arc(cx + rand(-40, 40), cy + rand(-10, 10), rand(14, 30), 0, Math.PI * 2);
+        g.fill();
+      }
     }
     g.fillStyle = '#4f9b52';
-    for (let i = 0; i < 9; i++) { g.beginPath(); g.arc(rand(0, w), h - rand(10, 70), rand(30, 60), 0, Math.PI * 2); g.fill(); }
-    g.fillStyle = '#3f7f45'; for (let i = 0; i < 6; i++) { g.beginPath(); g.arc(rand(0, w), h - rand(0, 30), rand(25, 45), 0, Math.PI * 2); g.fill(); }
+    for (let i = 0; i < 9; i++) {
+      g.beginPath();
+      g.arc(rand(0, w), h - rand(10, 70), rand(30, 60), 0, Math.PI * 2);
+      g.fill();
+    }
+    g.fillStyle = '#3f7f45';
+    for (let i = 0; i < 6; i++) {
+      g.beginPath();
+      g.arc(rand(0, w), h - rand(0, 30), rand(25, 45), 0, Math.PI * 2);
+      g.fill();
+    }
   });
 }
 
 function signTex() {
   return canvasTex(300, 256, (g, w, h) => {
-    g.fillStyle = '#123f33'; g.fillRect(0, 0, w, h);
-    g.strokeStyle = '#e8b54a'; g.lineWidth = 10; g.strokeRect(12, 12, w - 24, h - 24);
-
+    g.fillStyle = '#123f33';
+    g.fillRect(0, 0, w, h);
+    g.strokeStyle = '#e8b54a';
+    g.lineWidth = 10;
+    g.strokeRect(12, 12, w - 24, h - 24);
     const text = '임대';
     const pad = h * 0.18;
     const maxW = w - pad * 2;
-
     let size = h - pad * 2;
     g.font = `${size}px ${FONT_D}`;
     const measured = g.measureText(text).width;
     if (measured > maxW) size = size * (maxW / measured);
     g.font = `${size}px ${FONT_D}`;
-
     g.fillStyle = '#ffe9a8';
     g.textAlign = 'center';
     g.textBaseline = 'middle';
@@ -322,11 +478,17 @@ function makeEnv(renderer) {
   g.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
   es.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
   const wm = new THREE.MeshBasicMaterial({ color: new THREE.Color(5, 5, 4.6) });
-  for (let k = 0; k < 3; k++) { const p = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 3.2), wm); p.position.set(-8, 2.2, -5 + k * 4); p.rotation.y = Math.PI / 2; es.add(p); }
-  const pm = new THREE.PMREMGenerator(renderer); const rt = pm.fromScene(es, 0.03); pm.dispose();
+  for (let k = 0; k < 3; k++) {
+    const p = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 3.2), wm);
+    p.position.set(-8, 2.2, -5 + k * 4);
+    p.rotation.y = Math.PI / 2;
+    es.add(p);
+  }
+  const pm = new THREE.PMREMGenerator(renderer);
+  const rt = pm.fromScene(es, 0.03);
+  pm.dispose();
   return rt.texture;
 }
-
 const PR = Math.min(window.devicePixelRatio || 1, 2);
 function initScene() {
   THREE.ColorManagement.enabled = false;
@@ -336,17 +498,18 @@ function initScene() {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.12;
   renderer.shadowMap.enabled = true;
-  const scene = new THREE.Scene(); scene.background = C('#f4e2c4');
+  const scene = new THREE.Scene();
+  scene.background = C('#f4e2c4');
   const camera = new THREE.PerspectiveCamera(60, 1, 0.05, 60);
   Object.assign(G, { renderer, scene, camera });
   G.env = makeEnv(renderer);
   const M = G.M;
-  M.vc = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.78, metalness: 0 });
-  M.gloss = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.32, metalness: 0, envMap: G.env, envMapIntensity: 0.35 });
+  M.vc = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.78 });
+  M.gloss = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.32,envMap: G.env, envMapIntensity: 0.35 });
   M.metal = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 0.85, envMap: G.env, envMapIntensity: 1.1 });
-  M.glass = new THREE.MeshStandardMaterial({ color: C('#d6efff'), roughness: 0.05, metalness: 0, transparent: true, opacity: 0.32, envMap: G.env, envMapIntensity: 1.2, depthWrite: false });
-  M.person = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.68, metalness: 0 });
-  M.personGloss = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.28, metalness: 0, envMap: G.env, envMapIntensity: 0.5 });
+  M.glass = new THREE.MeshStandardMaterial({ color: C('#d6efff'), roughness: 0.05, transparent: true, opacity: 0.32, envMap: G.env, envMapIntensity: 1.2, depthWrite: false });
+  M.person = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.68 });
+  M.personGloss = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.28, envMap: G.env, envMapIntensity: 0.5 });
   const GEO = G.GEO;
   GEO.box = new THREE.BoxGeometry(1, 1, 1);
   GEO.cyl = new THREE.CylinderGeometry(1, 1, 1, 18);
@@ -357,55 +520,110 @@ function initScene() {
   GEO.coneC = new THREE.ConeGeometry(1, 1, 16);
   buildRoom();
   buildLights();
-  window.addEventListener('resize', onResize); onResize();
+  window.addEventListener('resize', onResize);
+  onResize();
 }
+
 function onResize() {
-  G.W = window.innerWidth; G.H = window.innerHeight;
+  G.W = window.innerWidth;
+  G.H = window.innerHeight;
   G.renderer.setSize(G.W, G.H, false);
   frameCamera();
 }
+
 function frameCamera() {
   const a = G.W / G.H, cam = G.camera;
   let fov, pos, look;
   // 동료는 어느 화면에서든 가장자리에 걸쳐 보이게: 화면 비율마다 카메라와 밴드 자리를 같이 정함
   let band;
-  if (a < 0.72) { fov = 74; pos = V3(0.05, 2.12, 1.75); look = V3(-0.05, 0.62, -6.4); band = { tb: [0.76, -0.8], pn: [-0.4, -0.72] }; }
-  else if (a < 1.25) { fov = 64; pos = V3(0, 2.12, 1.7); look = V3(0, 0.6, -6.4); band = { tb: [1.05, -0.85], pn: [-0.93, -0.7] }; }
-  else { fov = 52; pos = V3(0, 2.15, 1.6); look = V3(0, 0.45, -6.4); band = { tb: [1.48, -0.9], pn: [-1.3, -0.62] }; }
-  cam.fov = fov; cam.aspect = a; cam.position.copy(pos); cam.lookAt(look); cam.updateProjectionMatrix();
+  if (a < 0.72) {
+    fov = 74;
+    pos = V3(0.05, 2.12, 1.75);
+    look = V3(-0.05, 0.62, -6.4);
+    band = { tb: [0.76, -0.8], pn: [-0.4, -0.72] };
+  } else if (a < 1.25) {
+    fov = 64;
+    pos = V3(0, 2.12, 1.7);
+    look = V3(0, 0.6, -6.4);
+    band = { tb: [1.05, -0.85], pn: [-0.93, -0.7] };
+  } else {
+    fov = 52;
+    pos = V3(0, 2.15, 1.6);
+    look = V3(0, 0.45, -6.4);
+    band = { tb: [1.48, -0.9], pn: [-1.3, -0.62] };
+  }
+  cam.fov = fov;
+  cam.aspect = a;
+  cam.position.copy(pos);
+  cam.lookAt(look);
+  cam.updateProjectionMatrix();
   G.camBase = { pos: pos.clone(), look: look.clone() };
   G.bandLayout = band;
   placeBand();
 }
 
 function placeBand() {
-  const L = G.bandLayout; if (!L) return;
+  const L = G.bandLayout;
+  if (!L) return;
   if (G.props.piano) G.props.piano.position.set(L.pn[0] + 0.4, 0, L.pn[1] + 0.72);
   const tb = G.band.tb, pn = G.band.pn;
   if (tb) tb.root.position.set(L.tb[0], 0.42, L.tb[1]);
   if (pn) pn.root.position.set(L.pn[0], 0.42, L.pn[1]);
 }
+
 function buildRoom() {
   const { scene, M, GEO } = G;
   // 바닥
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(13, 16.4), new THREE.MeshStandardMaterial({ map: woodTex('#c98a4b', 8, [4, 5]), roughness: 0.5, envMap: G.env, envMapIntensity: 0.25 }));
-  floor.rotation.x = -Math.PI / 2; floor.position.set(0, 0, -4.3); floor.receiveShadow = true; scene.add(floor);
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.set(0, 0, -4.3);
+  floor.receiveShadow = true;
+  scene.add(floor);
   // 무대
   const stage = new THREE.Mesh(GEO.box, new THREE.MeshStandardMaterial({ color: C('#6d2f22'), roughness: 0.6 }));
-  stage.scale.set(8.8, 0.42, 4.9); stage.position.set(0, 0.21, 1.4); stage.receiveShadow = true; scene.add(stage);
+  stage.scale.set(8.8, 0.42, 4.9);
+  stage.position.set(0, 0.21, 1.4);
+  stage.receiveShadow = true;
+  scene.add(stage);
   const stTop = new THREE.Mesh(new THREE.PlaneGeometry(8.8, 4.9), new THREE.MeshStandardMaterial({ map: woodTex('#8a5532', 10, [3, 2]), roughness: 0.45, envMap: G.env, envMapIntensity: 0.3 }));
-  stTop.rotation.x = -Math.PI / 2; stTop.position.set(0, 0.422, 1.4); stTop.receiveShadow = true; scene.add(stTop);
+  stTop.rotation.x = -Math.PI / 2;
+  stTop.position.set(0, 0.422, 1.4);
+  stTop.receiveShadow = true;
+  scene.add(stTop);
   // 벽
   const plaster = new THREE.MeshStandardMaterial({ color: C('#f3e3c8'), roughness: 0.9 });
-  const wallL = new THREE.Mesh(new THREE.PlaneGeometry(16.4, 4.4), plaster); wallL.rotation.y = Math.PI / 2; wallL.position.set(-6.5, 2.2, -4.3); wallL.receiveShadow = true; scene.add(wallL);
-  const wallR = new THREE.Mesh(new THREE.PlaneGeometry(16.4, 4.4), plaster); wallR.rotation.y = -Math.PI / 2; wallR.position.set(6.5, 2.2, -4.3); wallR.receiveShadow = true; scene.add(wallR);
-  const wallB = new THREE.Mesh(new THREE.PlaneGeometry(13, 4.4), plaster); wallB.position.set(0, 2.2, -12.5); scene.add(wallB);
-  const wallS = new THREE.Mesh(new THREE.PlaneGeometry(13, 4.4), new THREE.MeshStandardMaterial({ color: C('#7a1f2b'), roughness: 0.95 })); wallS.rotation.y = Math.PI; wallS.position.set(0, 2.2, 3.85); scene.add(wallS);
-  const ceil = new THREE.Mesh(new THREE.PlaneGeometry(13, 16.4), new THREE.MeshStandardMaterial({ color: C('#f6ead6'), roughness: 0.95 })); ceil.rotation.x = Math.PI / 2; ceil.position.set(0, 4.4, -4.3); scene.add(ceil);
+  const wallL = new THREE.Mesh(new THREE.PlaneGeometry(16.4, 4.4), plaster);
+  wallL.rotation.y = Math.PI / 2;
+  wallL.position.set(-6.5, 2.2, -4.3);
+  wallL.receiveShadow = true;
+  scene.add(wallL);
+  const wallR = new THREE.Mesh(new THREE.PlaneGeometry(16.4, 4.4), plaster);
+  wallR.rotation.y = -Math.PI / 2;
+  wallR.position.set(6.5, 2.2, -4.3);
+  wallR.receiveShadow = true;
+  scene.add(wallR);
+  const wallB = new THREE.Mesh(new THREE.PlaneGeometry(13, 4.4), plaster);
+  wallB.position.set(0, 2.2, -12.5);
+  scene.add(wallB);
+  const wallS = new THREE.Mesh(new THREE.PlaneGeometry(13, 4.4), new THREE.MeshStandardMaterial({ color: C('#7a1f2b'), roughness: 0.95 }));
+  wallS.rotation.y = Math.PI;
+  wallS.position.set(0, 2.2, 3.85);
+  scene.add(wallS);
+  const ceil = new THREE.Mesh(new THREE.PlaneGeometry(13, 16.4), new THREE.MeshStandardMaterial({ color: C('#f6ead6'), roughness: 0.95 }));
+  ceil.rotation.x = Math.PI / 2;
+  ceil.position.set(0, 4.4, -4.3);
+  scene.add(ceil);
   const tileMat = new THREE.MeshStandardMaterial({ map: tileTex(), roughness: 0.35, envMap: G.env, envMapIntensity: 0.3 });
-  const tL = new THREE.Mesh(new THREE.PlaneGeometry(16.4, 1.12), tileMat); tL.rotation.y = Math.PI / 2; tL.position.set(-6.49, 0.56, -4.3); tL.receiveShadow = true; scene.add(tL);
-  const tR = new THREE.Mesh(new THREE.PlaneGeometry(16.4, 1.12), tileMat); tR.rotation.y = -Math.PI / 2; tR.position.set(6.49, 0.56, -4.3); tR.receiveShadow = true; scene.add(tR);
-
+  const tL = new THREE.Mesh(new THREE.PlaneGeometry(16.4, 1.12), tileMat);
+  tL.rotation.y = Math.PI / 2;
+  tL.position.set(-6.49, 0.56, -4.3);
+  tL.receiveShadow = true;
+  scene.add(tL);
+  const tR = new THREE.Mesh(new THREE.PlaneGeometry(16.4, 1.12), tileMat);
+  tR.rotation.y = -Math.PI / 2;
+  tR.position.set(6.49, 0.56, -4.3);
+  tR.receiveShadow = true;
+  scene.add(tR);
   const W = new Batch(), Gl = new Batch(), Mt = new Batch(), Glow = new Batch(), Gs = new Batch();
   // 벽 몰딩
   Gl.add(GEO.box, '#6b3a1e', [-6.44, 1.14, -4.3], 0, [0.06, 0.05, 16.4]);
@@ -415,10 +633,15 @@ function buildRoom() {
   // 왼쪽 창문 (햇빛)
   const sky = new THREE.MeshBasicMaterial({ map: skyTex() });
   [-10.2, -6.4, -2.6].forEach(z => {
-    const s = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 2.5), sky); s.rotation.y = Math.PI / 2; s.position.set(-6.47, 2.42, z); scene.add(s);
+    const s = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 2.5), sky);
+    s.rotation.y = Math.PI / 2;
+    s.position.set(-6.47, 2.42, z);
+    scene.add(s);
     const fr = '#fbfaf5';
-    W.add(GEO.box, fr, [-6.43, 2.42, z - 0.88], 0, [0.09, 2.62, 0.08]); W.add(GEO.box, fr, [-6.43, 2.42, z + 0.88], 0, [0.09, 2.62, 0.08]);
-    W.add(GEO.box, fr, [-6.43, 3.71, z], 0, [0.09, 0.08, 1.84]); W.add(GEO.box, fr, [-6.43, 2.42, z], 0, [0.07, 2.5, 0.05]);
+    W.add(GEO.box, fr, [-6.43, 2.42, z - 0.88], 0, [0.09, 2.62, 0.08]);
+    W.add(GEO.box, fr, [-6.43, 2.42, z + 0.88], 0, [0.09, 2.62, 0.08]);
+    W.add(GEO.box, fr, [-6.43, 3.71, z], 0, [0.09, 0.08, 1.84]);
+    W.add(GEO.box, fr, [-6.43, 2.42, z], 0, [0.07, 2.5, 0.05]);
     W.add(GEO.box, fr, [-6.43, 2.95, z], 0, [0.07, 0.05, 1.7]);
     Gl.add(GEO.box, '#8a5530', [-6.36, 1.16, z], 0, [0.26, 0.06, 1.95]);
     // 창틀 화분
@@ -430,9 +653,10 @@ function buildRoom() {
   const shaftMat = new THREE.MeshBasicMaterial({ color: C('#fff1c9'), transparent: true, opacity: 0.09, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
   [-10.2, -6.4, -2.6].forEach(z => {
     const sh = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 6.2), shaftMat);
-    sh.position.set(-4.2, 1.7, z + 0.3); sh.rotation.set(0, Math.PI / 2, -0.95); scene.add(sh);
+    sh.position.set(-4.2, 1.7, z + 0.3);
+    sh.rotation.set(0, Math.PI / 2, -0.95);
+    scene.add(sh);
   });
-
   // ----- 뒤쪽 바 -----
   Gl.add(GEO.box, '#7a4526', [0, 0.52, -11.43], 0, [9.2, 1.04, 0.62]);
   Gl.add(GEO.box, '#b9783f', [0, 1.07, -11.4], 0, [9.4, 0.06, 0.78]);
@@ -453,7 +677,9 @@ function buildRoom() {
   });
   // 간판
   const sign = new THREE.Mesh(new THREE.PlaneGeometry(3, 0.9), new THREE.MeshStandardMaterial({ map: signTex(), roughness: 0.5, emissive: C('#1a1a10'), emissiveIntensity: 0.2 }));
-  sign.position.set(0, 3.68, -12.38); scene.add(sign); G.props.sign = sign;
+  sign.position.set(0, 3.68, -12.38);
+  scene.add(sign);
+  G.props.sign = sign;
   // 바 스툴
   [-3.2, -1.6, 0, 1.6, 3.2].forEach(x => {
     Mt.add(GEO.cyl, '#cfd4d8', [x, 0.38, -10.72], 0, [0.03, 0.76, 0.03]);
@@ -465,7 +691,6 @@ function buildRoom() {
   // 바텐더 자리 + 소품
   Mt.add(GEO.cyl, '#cfd4d8', [-2.6, 1.22, -11.5], 0, [0.05, 0.24, 0.05]);
   Gl.add(GEO.box, '#2b3a67', [3.0, 1.22, -11.5], 0, [0.4, 0.26, 0.3]);
-
   // ----- 테이블과 의자 -----
   const tables = [[-2.75, -2.75], [0.05, -2.8], [2.8, -2.7], [-3.95, -5.05], [-1.35, -5.1], [1.4, -5.0], [3.95, -5.1], [-2.7, -7.5], [0.1, -7.55], [2.75, -7.45]];
   G.tables = tables;
@@ -479,9 +704,14 @@ function buildRoom() {
     const nd = randi(1, 3);
     for (let k = 0; k < nd; k++) {
       const gx = tx + rand(-0.28, 0.28), gz = tz + rand(-0.25, 0.2), kind = Math.random();
-      if (kind < 0.4) { Gs.add(GEO.cyl, '#e8a22a', [gx, 0.84, gz], 0, [0.035, 0.15, 0.035]); Gs.add(GEO.cyl, '#fff6dd', [gx, 0.925, gz], 0, [0.036, 0.025, 0.036]); }
-      else if (kind < 0.75) { Gs.add(GEO.coneC, pick(['#e8475f', '#f2b72b', '#58c1e0', '#9be36b']), [gx, 0.87, gz], [Math.PI, 0, 0], [0.055, 0.06, 0.055]); Gs.add(GEO.cyl, '#e6f4ff', [gx, 0.8, gz], 0, [0.006, 0.07, 0.006]); Gs.add(GEO.cyl, '#e6f4ff', [gx, 0.765, gz], 0, [0.03, 0.006, 0.03]); }
-      else { Gs.add(GEO.cyl, '#7a3b12', [gx, 0.81, gz], 0, [0.04, 0.09, 0.04]); }
+      if (kind < 0.4) {
+        Gs.add(GEO.cyl, '#e8a22a', [gx, 0.84, gz], 0, [0.035, 0.15, 0.035]);
+        Gs.add(GEO.cyl, '#fff6dd', [gx, 0.925, gz], 0, [0.036, 0.025, 0.036]);
+      } else if (kind < 0.75) {
+        Gs.add(GEO.coneC, pick(['#e8475f', '#f2b72b', '#58c1e0', '#9be36b']), [gx, 0.87, gz], [Math.PI, 0, 0], [0.055, 0.06, 0.055]);
+        Gs.add(GEO.cyl, '#e6f4ff', [gx, 0.8, gz], 0, [0.006, 0.07, 0.006]);
+        Gs.add(GEO.cyl, '#e6f4ff', [gx, 0.765, gz], 0, [0.03, 0.006, 0.03]);
+      } else Gs.add(GEO.cyl, '#7a3b12', [gx, 0.81, gz], 0, [0.04, 0.09, 0.04]);
     }
     // 의자: 무대 반대편에 앉아 무대를 봄
     const seats = [[-0.52, -0.34], [0.52, -0.34]];
@@ -522,17 +752,37 @@ function buildRoom() {
   PB.add(GEO.box, '#2a1712', [-1.3, 0.42 + 0.64, -0.72], 0, [0.6, 1.28, 1.5]);
   PB.add(GEO.box, '#3a2219', [-0.96, 0.42 + 0.7, -0.72], 0, [0.12, 0.05, 1.42]);
   PW.add(GEO.box, '#f7f3ea', [-0.9, 0.42 + 0.74, -0.72], 0, [0.16, 0.025, 1.34]);
-  for (let k = 0; k < 22; k++) { if ([2, 6, 9, 13, 16, 20].includes(k)) continue; PW.add(GEO.box, '#141414', [-0.93, 0.42 + 0.762, -1.36 + k * 0.061], 0, [0.09, 0.02, 0.028]); }
+  for (let k = 0; k < 22; k++) {
+    if ([2, 6, 9, 13, 16, 20].includes(k)) continue;
+    PW.add(GEO.box, '#141414', [-0.93, 0.42 + 0.762, -1.36 + k * 0.061], 0, [0.09, 0.02, 0.028]);
+  }
   PB.add(GEO.box, '#2a1712', [-1.28, 0.42 + 1.32, -0.72], 0, [0.66, 0.05, 1.56]);
   PB.add(GEO.box, '#2a1712', [-0.38, 0.42 + 0.45, -0.72], 0, [0.36, 0.05, 0.8]);
   [[-0.53, -1.05], [-0.23, -1.05], [-0.53, -0.39], [-0.23, -0.39]].forEach(([x, z]) => PB.add(GEO.cyl, '#2a1712', [x, 0.42 + 0.22, z], 0, [0.025, 0.44, 0.025]));
-  G.props.piano = new THREE.Group(); scene.add(G.props.piano);
-  { const a = PB.mesh(M.gloss), b = PW.mesh(M.vc); a.castShadow = true; G.props.piano.add(a); G.props.piano.add(b); }
-
-  const add = (b, mat, cast) => { if (!b.size) return; const m = b.mesh(mat); m.castShadow = !!cast; m.receiveShadow = true; scene.add(m); return m; };
-  add(W, M.vc, false); add(Gl, M.gloss, true); add(Mt, M.metal, true); add(Gs, M.gloss, false);
-  const gm = add(Glow, M.glow, false); if (gm) gm.receiveShadow = false;
+  G.props.piano = new THREE.Group();
+  scene.add(G.props.piano);
+  {
+    const a = PB.mesh(M.gloss), b = PW.mesh(M.vc);
+    a.castShadow = true;
+    G.props.piano.add(a);
+    G.props.piano.add(b);
+  }
+  const add = (b, mat, cast) => {
+    if (!b.size) return;
+    const m = b.mesh(mat);
+    m.castShadow = !!cast;
+    m.receiveShadow = true;
+    scene.add(m);
+    return m;
+  };
+  add(W, M.vc, false);
+  add(Gl, M.gloss, true);
+  add(Mt, M.metal, true);
+  add(Gs, M.gloss, false);
+  const gm = add(Glow, M.glow, false);
+  if (gm) gm.receiveShadow = false;
 }
+
 function buildChair(Gl, x, z, ry) {
   const GEO = G.GEO, m0 = mtx([x, 0, z], [0, ry, 0]);
   const at = (p, r, s, geo, color, batch) => batch.addM(geo, color, m0.clone().multiply(mtx(p, r, s)));
@@ -541,20 +791,23 @@ function buildChair(Gl, x, z, ry) {
   at([0, 0.78, -0.19], [0, 0, 0], [0.19, 0.19, 0.19], new THREE.TorusGeometry(1, 0.08, 6, 16, Math.PI), '#5e3219', Gl);
   [-0.12, 0.12].forEach(a => at([a, 0.62, -0.2], 0, [0.014, 0.34, 0.014], GEO.cyl8, '#5e3219', Gl));
 }
+
 function buildLights() {
   const s = G.scene;
   s.add(new THREE.HemisphereLight(C('#e3f2ff'), C('#e0a86e'), 0.72 * Math.PI));
   s.add(new THREE.AmbientLight(C('#ffffff'), 0.12));
   const sun = new THREE.DirectionalLight(C('#FFF0D6'), 1.65 * Math.PI);
-  sun.position.set(-11, 9, -4.5); sun.target.position.set(1.5, 0, -5.5); s.add(sun.target);
+  sun.position.set(-11, 9, -4.5);
+  sun.target.position.set(1.5, 0, -5.5);
+  s.add(sun.target);
   sun.castShadow = true;
   const big = PR > 1.5 ? 1536 : 2048;
   sun.shadow.mapSize.set(big, big);
   Object.assign(sun.shadow.camera, { left: -10, right: 10, top: 9, bottom: -9, near: 1, far: 32 });
-  sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.025;
+  sun.shadow.bias = -0.0006;
+  sun.shadow.normalBias = 0.025;
   s.add(sun);
 }
-
 // ===================== 관객 배치 =====================
 function buildPeople() {
   const seats = G.seats.slice();
@@ -567,7 +820,6 @@ function buildPeople() {
   [[-5.35, -9.1], [-5.65, -6.7], [5.4, -9.9]].forEach(([x, z]) => G.people.push(new Person({ x, z, kind: 'stand', far: true, angry: true })));
   G.band.bartender = new Person({ x: 0.9, z: -11.95, kind: 'stand', ry: 0, top: '#ffffff', outfit: 'shirt', far: true, angry: true });
 }
-
 // ===================== 밴드 =====================
 function buildTrombone() {
   const B = new Batch(), GE = G.GEO, brass = '#e0aa3e';
@@ -580,24 +832,34 @@ function buildTrombone() {
   B.add(GE.cyl, brass, [0.03, 0.1, -0.12], [Math.PI / 2, 0, 0], [0.011, 0.36, 0.011]);
   B.add(new THREE.TorusGeometry(0.05, 0.011, 6, 12, Math.PI), brass, [0.03, 0.05, -0.3], [0, Math.PI / 2, Math.PI / 2], [1, 1, 1]);
   B.add(GE.cyl, brass, [0.03, 0.0, -0.24], [Math.PI / 2, 0, 0], [0.011, 0.12, 0.011]);
-  const pts = []; for (let i = 0; i <= 12; i++) { const t = i / 12; pts.push(new THREE.Vector2(0.012 + Math.pow(t, 3.2) * 0.1, t * 0.34)); }
+  const pts = [];
+  for (let i = 0; i <= 12; i++) {
+    const t = i / 12;
+    pts.push(new THREE.Vector2(0.012 + Math.pow(t, 3.2) * 0.1, t * 0.34));
+  }
   B.add(new THREE.LatheGeometry(pts, 20), brass, [0.03, 0.1, 0.42], [Math.PI / 2, 0, 0], [1, 1, 1]);
   B.add(GE.cyl, brass, [0.015, 0.05, 0.2], 0, [0.006, 0.1, 0.006]);
-  const fixed = new THREE.Mesh(mergeGeoms(B.items), G.M.metal); B.items = [];
+  const fixed = new THREE.Mesh(mergeGeoms(B.items), G.M.metal);
+  B.items = [];
   const S = new Batch();
   S.add(GE.cyl, brass, [0, 0, 0.62], [Math.PI / 2, 0, 0], [0.012, 0.62, 0.012]);
   S.add(GE.cyl, brass, [0, -0.095, 0.62], [Math.PI / 2, 0, 0], [0.012, 0.62, 0.012]);
   S.add(new THREE.TorusGeometry(0.0475, 0.012, 6, 12, Math.PI), brass, [0, -0.0475, 0.93], [0, Math.PI / 2, 0], [1, 1, 1]);
   S.add(GE.cyl, brass, [0, -0.0475, 0.42], 0, [0.007, 0.095, 0.007]);
   const slide = S.mesh(G.M.metal);
-  const g = new THREE.Group(); g.add(fixed); g.add(slide);
+  const g = new THREE.Group();
+  g.add(fixed);
+  g.add(slide);
   return { g, slide };
 }
+
 function buildBand() {
   // 트롬본 (밴드리더) — 오른쪽 앞
   const tb = new Person({ x: 0.76, y: 0.42, z: -0.8, kind: 'stand', ry: Math.PI, female: false, top: '#1f9e7a', bottom: '#3a3a3a', outfit: 'jacket', hat: 'pork', glasses: false, hair: 'short', skin: '#b07246', angry: true });
   tb.isBand = true;
-  const tr = buildTrombone(); tb.torso.add(tr.g); tb.trombone = tr;
+  const tr = buildTrombone();
+  tb.torso.add(tr.g);
+  tb.trombone = tr;
   tb.root.rotation.y = 0;
   tb.trombone.g.position.set(.27, .2, .06);
   tb.trombone.g.rotation.set(-1.45, 0, 0.12);
@@ -605,11 +867,12 @@ function buildBand() {
   G.band.tb = tb;
   // 피아노 — 왼쪽, 건반 쪽을 보고 앉음 (옆모습)
   const pn = new Person({ x: -0.4, y: 0.42, z: -0.72, kind: 'chair', seatY: 0.475, ry: -Math.PI / 2, female: true, top: '#e2403a', outfit: 'blouse', hair: 'bun', glasses: true, angry: true });
-  pn.isBand = true; pn.armOverride = { R: POSE.keys, L: POSE.keys }; pn.hit = -9;
+  pn.isBand = true;
+  pn.armOverride = { R: POSE.keys, L: POSE.keys };
+  pn.hit = -9;
   G.band.pn = pn;
   placeBand();
 }
-
 // ===================== 대사 =====================
 function reactUpdate() {
   const you = G.camera.position;
@@ -624,23 +887,23 @@ function reactUpdate() {
   pn.lookAt = you; pn.nodTarget = 0; pn.smileV = 0;
   bt.lookAt = you; bt.nodTarget = 0;
 }
-
 const aud = () => G.people;
 const visNow = () => AE.ctx && AE.ctx.state === 'running' ? AE.ctx.currentTime - (AE.ctx.outputLatency || 0.02) : performance.now() / 1000;
-
 // ---------- 반응 ----------
 function setBabble(v) {
   if (AE.ready) AE.babbleGain.gain.setTargetAtTime(v, AE.ctx.currentTime, 0.7);
 }
-
 // ===================== 루프 =====================
 let lastFrame = performance.now();
+
 function loop() {
   requestAnimationFrame(loop);
   frame();
 }
+
 function frame() {
-  const tn = performance.now(), dt = Math.min(0.05, (tn - lastFrame) / 1000); lastFrame = tn;
+  const tn = performance.now(), dt = Math.min(0.05, (tn - lastFrame) / 1000);
+  lastFrame = tn;
   const now = visNow();
   const beatPos = tn / 1000 * 1.7;
   reactUpdate();
@@ -652,12 +915,14 @@ function frame() {
     G.camera.lookAt(look.x + r() * 0.025, look.y + r() * 0.018, look.z + r() * 0.002);
   }
   for (const k of ['tb', 'pn', 'bartender']) {
-    const b = G.band[k]; b.update(dt, now, beatPos);
+    const b = G.band[k];
+    b.update(dt, now, beatPos);
     if (b.shakeUntil > now) b.head.rotation.y += 0.22 * Math.sin(now * 17);
   }
   UI.updateBubbles();
   G.renderer.render(G.scene, G.camera);
 }
+
 function bindAudioUnlock() {
   document.addEventListener('pointerdown', () => {
     if (AE.ctx && AE.ctx.state !== 'running') AE.ctx.resume();
@@ -674,14 +939,24 @@ async function boot() {
     ]);
   } catch { }
   try {
-    UI.init(); initScene(); buildPeople(); buildBand();
+    UI.init();
+    initScene();
+    buildPeople();
+    buildBand();
     bindAudioUnlock();
     requestAnimationFrame(loop);
     await initAudio();
     setBabble(0.5);
     startTrumpet();
-    setInterval(() => { const p = pick(aud()); if (p) UI.bubble(p, pick(ANGRY_LINES)); }, 1450);
-    document.addEventListener('visibilitychange', () => { if (!AE.ctx) return; if (document.hidden) AE.ctx.suspend(); else AE.ctx.resume(); });
+    setInterval(() => {
+      const p = pick(aud());
+      if (p) UI.bubble(p, pick(ANGRY_LINES));
+    }, 1450);
+    document.addEventListener('visibilitychange', () => {
+      if (!AE.ctx) return;
+      if (document.hidden) AE.ctx.suspend();
+      else AE.ctx.resume();
+    });
   } catch (e) { console.error(e?.stack || e); }
 }
 boot();
